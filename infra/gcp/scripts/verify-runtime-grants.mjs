@@ -10,7 +10,9 @@ const dbRequire = createRequire(`${root}/packages/db/package.json`);
 const workerRequire = createRequire(`${root}/apps/worker/package.json`);
 const { Pool } = dbRequire("pg");
 const { PgBoss } = await import(workerRequire.resolve("pg-boss"));
-const { PostgresRepository, hashKey } = await import(`${root}/packages/db/dist/index.js`);
+const { PostgresRepository, executeQueueSql, hashKey } = await import(
+	`${root}/packages/db/dist/index.js`
+);
 const { migrate } = await import(`${root}/packages/db/dist/migrate.js`);
 // biome-ignore lint/suspicious/noUndeclaredEnvVars: This standalone operator test is not a cached Turborepo task.
 const adminUrl = process.env.TEST_ADMIN_DATABASE_URL;
@@ -27,7 +29,46 @@ const roles = {
 	worker: `analytics_worker_${suffix}`,
 	migrate: `analytics_migrate_${suffix}`,
 };
-const admin = new Pool({ connectionString: adminUrl });
+const failures = [];
+const queueQueries = new Set();
+const trackedConnections = new Map();
+function recordFailure(stage, error) {
+	// Never log pg's Error/client object: it includes connection configuration.
+	failures.push({
+		stage,
+		code: typeof error?.code === "string" ? error.code : "CHECK_FAILED",
+		name: error?.name ?? "Error",
+	});
+}
+function trackedPool(connectionString, label) {
+	const value = new Pool({ connectionString });
+	const socketClosures = new Set();
+	value.on("connect", (client) => {
+		const closed = new Promise((resolve) => client.once("end", resolve));
+		socketClosures.add(closed);
+		void closed.then(() => socketClosures.delete(closed));
+	});
+	value.on("error", (error) => recordFailure(`${label}-pool`, error));
+	trackedConnections.set(value, socketClosures);
+	return value;
+}
+async function closePool(connection) {
+	// pg-pool end() can resolve before its clients' socket-close callbacks.
+	// Wait for each public Client end event before dropping the test database.
+	await connection.end();
+	let timer;
+	try {
+		await Promise.race([
+			Promise.all([...trackedConnections.get(connection)]),
+			new Promise((_, reject) => {
+				timer = setTimeout(() => reject(new Error("Socket drain timed out")), 10000);
+			}),
+		]);
+	} finally {
+		clearTimeout(timer);
+	}
+}
+const admin = trackedPool(adminUrl, "admin");
 const connections = [];
 const createdRoles = [];
 let databaseCreated = false;
@@ -43,7 +84,8 @@ function urlFor(user) {
 	return url.toString();
 }
 function pool(user) {
-	const value = new Pool({ connectionString: urlFor(user) });
+	const label = Object.entries(roles).find(([, role]) => role === user)?.[0] ?? "runtime";
+	const value = trackedPool(urlFor(user), label);
 	connections.push(value);
 	return value;
 }
@@ -144,9 +186,19 @@ try {
 	);
 	boss = new PgBoss({
 		createSchema: false,
-		db: { executeSql: async (text, values) => ({ rows: (await worker.query(text, values)).rows }) },
+		db: {
+			executeSql: async (text, values) => {
+				const query = executeQueueSql(worker, text, values);
+				queueQueries.add(query);
+				try {
+					return await query;
+				} finally {
+					queueQueries.delete(query);
+				}
+			},
+		},
 	});
-	boss.on("error", () => {});
+	boss.on("error", (error) => recordFailure("queue", error));
 	await boss.start();
 	await boss.createQueue("usage-housekeeping");
 	await boss.schedule("usage-housekeeping", "*/15 * * * *", {});
@@ -166,11 +218,47 @@ try {
 	checks.push(
 		"Worker owns queue schema and can maintain rate limits/heartbeat without app data access",
 	);
-	console.log(JSON.stringify({ passed: true, checks, postgresMajor: 16 }));
+} catch (error) {
+	recordFailure("acceptance", error);
 } finally {
-	if (boss) await boss.stop({ timeout: 5000 });
-	await Promise.all(connections.map((connection) => connection.end()));
-	if (databaseCreated) await admin.query(`DROP DATABASE "${dbName}" WITH (FORCE)`);
-	for (const role of createdRoles) await admin.query(`DROP ROLE "${role}"`);
-	await admin.end();
+	if (boss) {
+		try {
+			await boss.stop({ graceful: true, close: false, timeout: 5000 });
+			for (const result of await Promise.allSettled([...queueQueries])) {
+				if (result.status === "rejected") recordFailure("queue-drain", result.reason);
+			}
+		} catch (error) {
+			recordFailure("queue-stop", error);
+		}
+	}
+	for (const result of await Promise.allSettled(connections.map(closePool))) {
+		if (result.status === "rejected") recordFailure("pool-drain", result.reason);
+	}
+	if (databaseCreated) {
+		try {
+			// No FORCE: an undrained connection is a test failure, not something to hide.
+			await admin.query(`DROP DATABASE "${dbName}"`);
+			checks.push("queue and all runtime sockets drained before database removal");
+		} catch (error) {
+			recordFailure("drop-database", error);
+		}
+	}
+	for (const role of createdRoles) {
+		try {
+			await admin.query(`DROP ROLE "${role}"`);
+		} catch (error) {
+			recordFailure("drop-role", error);
+		}
+	}
+	try {
+		await closePool(admin);
+	} catch (error) {
+		recordFailure("admin-drain", error);
+	}
+}
+if (failures.length > 0) {
+	console.error(JSON.stringify({ passed: false, checks, failures, postgresMajor: 16 }));
+	process.exitCode = 1;
+} else {
+	console.log(JSON.stringify({ passed: true, checks, postgresMajor: 16 }));
 }

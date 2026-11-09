@@ -1,5 +1,5 @@
 import { serve } from "@hono/node-server";
-import { connectDatabase } from "@subkit/db";
+import { connectDatabase, executeQueueSql } from "@subkit/db";
 import { Hono } from "hono";
 import { PgBoss } from "pg-boss";
 import pino from "pino";
@@ -10,10 +10,7 @@ const boss = new PgBoss({
 	// The production queue schema is owned by this identity but created by bootstrap.
 	createSchema: process.env.NODE_ENV !== "production",
 	db: {
-		executeSql: async (text, values) => {
-			const result = await db.pool.query(text, values);
-			return { rows: result.rows };
-		},
+		executeSql: (text, values) => executeQueueSql(db.pool, text, values),
 	},
 });
 boss.on("error", () => logger.error("Worker queue error"));

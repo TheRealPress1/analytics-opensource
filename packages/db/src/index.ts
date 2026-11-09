@@ -7,6 +7,11 @@ import { apps } from "./schema.js";
 
 export { apps, deletedSubjects, events } from "./schema.js";
 export const hashKey = (key: string) => createHash("sha256").update(key).digest("hex");
+export async function executeQueueSql(pool: pg.Pool, text: string, values?: unknown[]) {
+	const result = await pool.query(text, values);
+	// pg-boss uses multi-statement transactions; preserve rows from every statement.
+	return { rows: Array.isArray(result) ? result.flatMap((part) => part.rows) : result.rows };
+}
 export interface App {
 	id: string;
 	name: string;
