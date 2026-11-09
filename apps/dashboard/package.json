@@ -1,0 +1,27 @@
+{
+	"name": "@subkit/dashboard",
+	"version": "0.1.0",
+	"private": true,
+	"scripts": {
+		"dev": "next dev --port 3100",
+		"build": "next build",
+		"start": "next start --port 3100",
+		"typecheck": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@subkit/core": "workspace:*",
+		"next": "16.4.6",
+		"next-auth": "5.0.0-beta.32",
+		"react": "^19.2.0",
+		"react-dom": "^19.2.0",
+		"recharts": "^3.7.0",
+		"server-only": "^0.0.1",
+		"zod": "^4.6.7"
+	},
+	"devDependencies": {
+		"@tailwindcss/postcss": "^4.2.0",
+		"tailwindcss": "^4.2.0",
+		"@types/react": "^19.2.0",
+		"@types/react-dom": "^19.2.0"
+	}
+}
