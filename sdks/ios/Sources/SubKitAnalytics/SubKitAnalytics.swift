@@ -192,7 +192,7 @@ public actor SubKitAnalytics {
                 scheduleFlush(after: 0)
                 return FlushResult(accepted: acknowledgment.accepted, duplicates: acknowledgment.duplicates)
             }
-            if (400..<500).contains(response.status), response.status != 408, response.status != 429 {
+            if (400..<500).contains(response.status), response.status != 401, response.status != 408, response.status != 429 {
                 try removeAcknowledged(batch)
                 retryAttempt = 0
                 scheduleFlush(after: 0)

@@ -63,7 +63,9 @@ Events keep stable UUIDs across retries and are only removed after a complete
 The default queue holds 500 events and expires events after seven days; the oldest
 pending event is dropped if the queue exceeds its configured bound. Transient
 failures retry with bounded exponential backoff. Other `4xx` errors discard the
-rejected batch and return its size in `discarded`; `408` and `429` remain retryable.
+rejected batch and return its size in `discarded`; `401`, `408` and `429` remain retryable.
+A `401` invokes the token provider again on retry, preserving event IDs if the
+credential expired or rotated between issuance and ingestion.
 `onDelivery` receives acknowledgment counts without any payload or credentials.
 
 Properties must match a declared boolean, bounded finite number or fixed string

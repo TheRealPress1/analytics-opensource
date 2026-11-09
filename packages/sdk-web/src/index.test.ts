@@ -264,4 +264,31 @@ describe("browser usage SDK", () => {
 		expect(fetcher).toHaveBeenCalledTimes(2);
 		expect(client.pendingEventCount).toBe(0);
 	});
+
+	it("keeps events after401 and fetches a fresh credential on automatic retry", async () => {
+		vi.useFakeTimers();
+		const fetcher = vi
+			.fn<typeof fetch>()
+			.mockResolvedValueOnce(new Response("", { status: 401 }))
+			.mockResolvedValueOnce(response(1));
+		const tokenProvider = vi
+			.fn()
+			.mockResolvedValueOnce({ ...token(), token: "synthetic.collector.first" })
+			.mockResolvedValueOnce({ ...token(), token: "synthetic.collector.fresh" });
+		const client = await create({ fetch: fetcher, tokenProvider, automaticFlush: true });
+		const id = client.track("app_opened");
+		await expect(client.flush()).rejects.toMatchObject({ status: 401 });
+		expect(client.pendingEventCount).toBe(1);
+		await vi.advanceTimersByTimeAsync(2000);
+		expect(tokenProvider).toHaveBeenCalledTimes(2);
+		expect(client.pendingEventCount).toBe(0);
+		expect(fetcher.mock.calls[0]?.[1]?.body).toBe(fetcher.mock.calls[1]?.[1]?.body);
+		expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body)).events[0].id).toBe(id);
+		expect(new Headers(fetcher.mock.calls[0]?.[1]?.headers).get("Authorization")).toBe(
+			"Bearer synthetic.collector.first",
+		);
+		expect(new Headers(fetcher.mock.calls[1]?.[1]?.headers).get("Authorization")).toBe(
+			"Bearer synthetic.collector.fresh",
+		);
+	});
 });

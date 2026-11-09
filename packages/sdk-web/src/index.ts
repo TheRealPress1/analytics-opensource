@@ -364,6 +364,7 @@ export class AnalyticsClient {
 			} else if (
 				response.status >= 400 &&
 				response.status < 500 &&
+				response.status !== 401 &&
 				response.status !== 408 &&
 				response.status !== 429
 			) {

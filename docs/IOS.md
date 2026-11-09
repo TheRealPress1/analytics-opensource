@@ -102,9 +102,10 @@ controls for already stored events. There is no anonymous identity merging.
   text, URLs, nested JSON and undeclared properties are rejected before persistence.
 - Automatic mode batches after one second, up to 50 events and 60 KiB per request,
   then drains remaining batches. Restarting resumes a persisted queue.
-- Network failures, `408`, `429` and `5xx` retain IDs and retry with exponential
+- Network failures, `401`, `408`, `429` and `5xx` retain IDs and retry with exponential
   backoff, capped at one hour. Numeric `Retry-After` is respected up to that cap.
-  Other `4xx` responses discard that rejected batch so a permanently invalid
+  A `401` requests a fresh token from the provider on retry, covering expiry or
+  rotation between token issuance and ingestion. Other `4xx` responses discard that rejected batch so a permanently invalid
   event cannot block the queue. Explicit `flush()` reports the discarded count.
 - A `200` only removes events when `accepted + duplicates` equals the batch size.
   Malformed acknowledgments and `202` keep events pending. This is analytics

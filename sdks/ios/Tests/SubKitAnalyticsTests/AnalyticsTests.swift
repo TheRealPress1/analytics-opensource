@@ -34,6 +34,15 @@ private actor RecordingTransport: AnalyticsTransport {
     }
 }
 
+private actor RefreshingTokenProvider {
+    private(set) var calls = 0
+    func credential() -> CollectorToken {
+        calls += 1
+        return CollectorToken(token: "synthetic.collector.\(calls)", subject: userA,
+                              environment: .development, expiresAt: instant.addingTimeInterval(3_600))
+    }
+}
+
 private actor SuspendedTransport: AnalyticsTransport {
     private(set) var requests: [URLRequest] = []
     private var continuation: CheckedContinuation<AnalyticsHTTPResponse, Never>?
@@ -146,6 +155,29 @@ struct AnalyticsTests {
         try await sdk.track("app_opened")
         #expect(try await sdk.flush() == FlushResult(duplicates: 1))
         #expect(await sdk.pendingEventCount == 0)
+    }
+
+    @Test func unauthorizedResponseRetainsEventsAndAutomaticallyFetchesFreshToken() async throws {
+        let transport = RecordingTransport([AnalyticsHTTPResponse(status: 401, body: Data()), ack(1)])
+        let provider = RefreshingTokenProvider()
+        let sdk = try SubKitAnalytics(configuration: config(automatic: true), subject: userA, enabled: true,
+            storage: MemoryStorage(), transport: transport, clock: { instant },
+            tokenProvider: { await provider.credential() })
+        let identifier = try await sdk.track("app_opened")
+        await #expect(throws: AnalyticsError.httpStatus(401)) { try await sdk.flush() }
+        #expect(await sdk.pendingEventCount == 1)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(6))
+        while await sdk.pendingEventCount > 0, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(await provider.calls == 2)
+        #expect(await sdk.pendingEventCount == 0)
+        let requests = await transport.requests
+        #expect(requests.count == 2)
+        #expect(requests[0].httpBody == requests[1].httpBody)
+        #expect(try events(in: requests[1]).first?.id == identifier)
+        #expect(requests[0].value(forHTTPHeaderField: "Authorization") == "Bearer synthetic.collector.1")
+        #expect(requests[1].value(forHTTPHeaderField: "Authorization") == "Bearer synthetic.collector.2")
     }
 
     @Test func automaticModeRetriesTransientFailureWithoutAnotherTrack() async throws {
