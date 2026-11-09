@@ -1,0 +1,11 @@
+{
+	"name": "Example App",
+	"slug": "example-app",
+	"eventSpecs": {
+		"app_opened": {},
+		"onboarding_completed": {},
+		"meal_logged": { "method": { "type": "enum", "values": ["manual", "camera"] } },
+		"water_logged": {}
+	},
+	"allowedOrigins": ["http://localhost:3000"]
+}

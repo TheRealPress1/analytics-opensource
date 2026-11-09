@@ -1,0 +1,25 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.6.6/schema.json",
+	"vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+	"files": {
+		"ignoreUnknown": true,
+		"includes": [
+			"**",
+			"!!**/dist",
+			"!!**/.next",
+			"!!**/.build",
+			"!!**/node_modules",
+			"!!**/pnpm-lock.yaml",
+			"!!**/.terraform"
+		]
+	},
+	"formatter": { "enabled": true, "lineWidth": 100 },
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"preset": "recommended",
+			"style": { "noNonNullAssertion": "off" },
+			"suspicious": { "noExplicitAny": "off" }
+		}
+	}
+}
