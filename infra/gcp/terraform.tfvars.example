@@ -1,0 +1,17 @@
+project_id = "your-analytics-project"
+region = "us-east4"
+github_repository = "your-org/your-analytics-repo"
+github_repository_id = "123456789"
+github_owner_id = "987654321"
+notification_email = "ops@example.com"
+# Set an actual billing account before the pilot. A budget sends alerts; it is not a spending cap.
+billing_account_id = ""
+monthly_budget_usd = 50
+# First provision infrastructure only. Add secret versions outside Terraform and bootstrap SQL grants.
+deploy_services = false
+# Set these to published image digests before enabling services.
+api_image = ""
+worker_image = ""
+# An HA database is recommended for production; ZONAL is suitable for a staging pilot.
+db_availability_type = "ZONAL"
+enable_pubsub_foundation = false
