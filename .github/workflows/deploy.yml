@@ -1,0 +1,109 @@
+name: Deploy GCP services
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: gcp-staging-deploy
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: analytics
+          POSTGRES_PASSWORD: synthetic-ci-password
+          POSTGRES_DB: analytics_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U analytics -d analytics_test"
+          --health-interval=10s --health-timeout=5s --health-retries=5
+    env:
+      TEST_DATABASE_URL: postgresql://analytics:synthetic-ci-password@localhost:5432/analytics_test
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ vars.GCP_REGION || 'us-east4' }}
+      SERVICE_PREFIX: ${{ vars.GCP_SERVICE_PREFIX || 'subkit-analytics' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @subkit/core --filter @subkit/db build
+      - run: pnpm typecheck && pnpm test && pnpm lint
+      - name: Build images before obtaining short-lived credentials
+        run: |
+          docker build -f Dockerfile.api -t subkit-api:release .
+          docker build -f Dockerfile.worker -t subkit-worker:release .
+      - id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          token_format: access_token
+          access_token_lifetime: 1800s
+      - uses: google-github-actions/setup-gcloud@v3
+      - name: Use a short-lived access token file
+        env:
+          ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+        run: |
+          umask 077
+          printf '%s' "$ACCESS_TOKEN" > "$RUNNER_TEMP/subkit-gcp-access-token"
+          printf 'CLOUDSDK_AUTH_ACCESS_TOKEN_FILE=%s\n' "$RUNNER_TEMP/subkit-gcp-access-token" >> "$GITHUB_ENV"
+      - name: Push immutable images
+        id: images
+        run: |
+          set -euo pipefail
+          registry="$GCP_REGION-docker.pkg.dev/$GCP_PROJECT_ID/$SERVICE_PREFIX"
+          gcloud auth configure-docker "$GCP_REGION-docker.pkg.dev" --quiet
+          for service in api worker; do
+            image="$registry/$service:$GITHUB_SHA"
+            docker tag "subkit-$service:release" "$image"
+            docker push "$image"
+            digest=$(gcloud artifacts docker images describe "$image" --format='value(image_summary.digest)')
+            echo "$service=$registry/$service@$digest" >> "$GITHUB_OUTPUT"
+          done
+      - name: Refresh federation before migration and rollout
+        id: rollout_auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          token_format: access_token
+          access_token_lifetime: 1800s
+      - name: Refresh the token file for long migrations
+        env:
+          ACCESS_TOKEN: ${{ steps.rollout_auth.outputs.access_token }}
+        run: |
+          umask 077
+          printf '%s' "$ACCESS_TOKEN" > "$RUNNER_TEMP/subkit-gcp-access-token"
+      - name: Migrate and deploy
+        env:
+          API_IMAGE: ${{ steps.images.outputs.api }}
+          WORKER_IMAGE: ${{ steps.images.outputs.worker }}
+        run: |
+          set -euo pipefail
+          for role in api worker; do
+            gcloud run jobs update "$SERVICE_PREFIX-kms-$role" --image="$API_IMAGE" --region="$GCP_REGION" --quiet
+            gcloud run jobs execute "$SERVICE_PREFIX-kms-$role" --region="$GCP_REGION" --wait --quiet
+          done
+          gcloud run jobs update "$SERVICE_PREFIX-migrate" --image="$API_IMAGE" --region="$GCP_REGION" --quiet
+          gcloud run jobs execute "$SERVICE_PREFIX-migrate" --region="$GCP_REGION" --wait --quiet
+          gcloud run services update "$SERVICE_PREFIX-worker" --image="$WORKER_IMAGE" --region="$GCP_REGION" --quiet
+          gcloud run services update "$SERVICE_PREFIX-api" --image="$API_IMAGE" --region="$GCP_REGION" --quiet
+          url=$(gcloud run services describe "$SERVICE_PREFIX-api" --region="$GCP_REGION" --format='value(status.url)')
+          curl --fail --silent --show-error --retry 5 --retry-delay 3 "$url/readyz"
+      - name: Remove temporary access token
+        if: always()
+        run: rm -f "$RUNNER_TEMP/subkit-gcp-access-token"

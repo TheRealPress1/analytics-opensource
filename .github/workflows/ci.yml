@@ -1,0 +1,61 @@
+name: CI
+on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  typescript:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: analytics_test
+          POSTGRES_PASSWORD: test-only-local-ci
+          POSTGRES_DB: analytics_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://analytics_test:test-only-local-ci@127.0.0.1:5432/analytics_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: TEST_ADMIN_DATABASE_URL="$TEST_DATABASE_URL" node infra/gcp/scripts/verify-runtime-grants.mjs
+      - run: pnpm lint
+  swift:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift test
+  infrastructure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.14.0"
+      - run: terraform fmt -check -recursive
+        working-directory: infra/gcp
+      - run: terraform init -backend=false
+        working-directory: infra/gcp
+      - run: terraform validate && terraform test
+        working-directory: infra/gcp
+  containers:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [api, worker]
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f Dockerfile.${{ matrix.service }} -t analytics-${{ matrix.service }}:ci .

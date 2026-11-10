@@ -1,0 +1,33 @@
+{
+	"name": "@subkit/api",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"typecheck": "tsc -p tsconfig.json --noEmit"
+	},
+	"dependencies": {
+		"@hono/node-server": "^1.19.11",
+		"@subkit/core": "workspace:*",
+		"@subkit/db": "workspace:*",
+		"hono": "4.13.17",
+		"jose": "^6.1.3",
+		"pino": "^10.3.0",
+		"zod": "4.6.7"
+	},
+	"devDependencies": {
+		"pg": "^8.23.1"
+	}
+}
