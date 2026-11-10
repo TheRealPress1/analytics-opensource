@@ -6,7 +6,13 @@ Recorded 2026-11-09. These describe implemented source and intended deployment c
 
 The initial subscription-platform prompt is superseded by the user's clarification: usage analytics only. There are no purchases, subscriptions, entitlements, store adapters, billing integrations or remote paywalls. Geneva is a consumer of the reusable SDK. Its patient records, credentials and app-specific configuration stay outside this repository. All test fixtures are invented.
 
-## GCP hosting replaces Railway
+## Embed in the host database for a small deployment
+
+Added 2026-11-10. An existing Node application can mount the same authenticated HTTP API and supply its existing `better-sqlite3` handle. The adapter creates only prefixed `subkit_analytics_*` tables and never changes the host journal mode, closes its connection or touches unrelated records. Explicit transactional migrations and a bounded cleanup method replace a separate database service and continuous queue worker. Event acceptance remains synchronous and durable according to the host database settings. App/environment isolation, deletion tombstones and idempotent intake remain part of both storage adapters.
+
+The host remains responsible for access controls, backups, restores and secret storage. Sharing existing hosting does not make storage or traffic inherently free; it removes the need to provision separate services. The Geneva pilot uses this mode to fit its additional-hosting budget. The generic SDK and service remain independently reusable.
+
+## Dedicated GCP deployment (optional)
 
 The API and continuous pg-boss worker run on Cloud Run in `us-east4`; the dashboard remains a Next.js application suitable for Vercel. Postgres 16 runs on private-IP Cloud SQL. The application connector uses attached service-account identity with automatic IAM database authentication, not a database password. Direct VPC egress provides private network reachability; the connector alone does not create that path. [Cloud SQL Node connector](https://github.com/GoogleCloudPlatform/cloud-sql-nodejs-connector), [IAM authentication](https://docs.cloud.google.com/sql/docs/postgres/iam-logins).
 

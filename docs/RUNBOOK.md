@@ -2,6 +2,8 @@
 
 This is a deployment procedure, not evidence that infrastructure is already live. Keep project IDs, deployment identities, keys, connection settings and evidence in the consuming app's private workspace. The reusable repository contains synthetic examples only.
 
+For an existing Node application with SQLite, use [embedded deployment](EMBEDDED.md). The steps below apply only to the optional dedicated Google Cloud installation.
+
 ## Prepare and validate
 
 1. Select an existing billed GCP staging project and `us-east4`. Review the roughly $110+/month baseline in [infra/gcp/README.md](../infra/gcp/README.md); the $50 budget is an alert, not a cap.

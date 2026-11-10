@@ -29,6 +29,8 @@ async function collectorSession(request: Request) {
 
 Authentication and consent functions above belong to the host application; this service does not infer them. Apply your normal CSRF/session protections to that route. A collector token lasts 15 minutes and grants only ingestion for its bound app, subject and environment.
 
+All SDKs accept an API mount prefix, for example `https://example.com/api/app-analytics`. They append `/v1/events` or `/v1/server/...` on that same origin; do not include `/v1` in the configured base URL. A single trailing slash is normalized. Path segments may contain ASCII letters, digits, `-`, `_`, `.`, and `~`, but not `.` or `..` alone. Encoded paths, repeated slashes, user information, queries and fragments are rejected. Redirects never forward credentials. An embedded host must route bearer-authenticated collector requests and browser preflights to the library without requiring a staff session; its dashboard and token-issuance boundary still need their own authorization.
+
 ## Installing from a release or checkout
 
 Swift Package Manager installs directly from `https://github.com/TheRealPress1/analytics-opensource.git`. Pin an exact release tag or commit for reproducibility. The product is `SubKitAnalytics`; the package has no third-party Swift dependencies.
@@ -40,10 +42,10 @@ pnpm install
 pnpm --dir packages/sdk-web pack --pack-destination ../../artifacts
 pnpm --dir packages/sdk-server pack --pack-destination ../../artifacts
 # In your separate consumer project:
-pnpm add /absolute/path/to/artifacts/subkit-web-0.1.0.tgz
+pnpm add /absolute/path/to/artifacts/subkit-web-0.2.0.tgz
 ```
 
-Install `subkit-server-0.1.0.tgz` in the authenticated backend. These instructions do not imply that an npm package has been published.
+Install `subkit-server-0.2.0.tgz` in the authenticated backend. These instructions do not imply that an npm package has been published.
 
 ## Verify the integration
 

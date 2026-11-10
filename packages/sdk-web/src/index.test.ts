@@ -54,6 +54,64 @@ afterEach(() => {
 });
 
 describe("browser usage SDK", () => {
+	it.each(["", "/", "/api/app-analytics", "/api/app-analytics/"])(
+		"preserves the same-origin API mount %s when delivering a bearer token",
+		async (mount) => {
+			const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response(1));
+			const client = await create({
+				baseUrl: `https://analytics.example.test:8443${mount}`,
+				fetch: fetcher,
+			});
+			client.track("app_opened");
+			await client.flush();
+			const [url, request] = fetcher.mock.calls[0]!;
+			expect(url).toBe(`https://analytics.example.test:8443${mount.replace(/\/$/, "")}/v1/events`);
+			expect(request).toMatchObject({ redirect: "error", credentials: "omit" });
+			expect(new Headers(request?.headers).get("Authorization")).toBe(
+				"Bearer synthetic.collector.token",
+			);
+		},
+	);
+
+	it("normalizes a mount's trailing slash while isolating different mounts in storage", async () => {
+		const storage = memoryQueueStorage();
+		const first = await create({
+			baseUrl: "https://analytics.example.test/api/app-analytics/",
+			storage,
+		});
+		first.track("app_opened");
+		first.dispose();
+		const resumed = await create({
+			baseUrl: "https://analytics.example.test/api/app-analytics",
+			storage,
+		});
+		expect(resumed.pendingEventCount).toBe(1);
+		const other = await create({ baseUrl: "https://analytics.example.test/api/other", storage });
+		expect(other.pendingEventCount).toBe(0);
+	});
+
+	it("rejects credentials, queries, fragments and ambiguous or traversing mount paths", async () => {
+		for (const baseUrl of [
+			"https://user:password@example.test/api",
+			"https://example.test/api?",
+			"https://example.test/api#",
+			"https://example.test/api/../other",
+			"https://example.test/api/./other",
+			"https://example.test/api/%2e%2e/other",
+			"https://example.test/api/%252e%252e/other",
+			"https://example.test/api%2fother",
+			"https://example.test//other",
+			"https://example.test/api//other",
+			"https://example.test/api\\other",
+			"https://example.test/api\n",
+		]) {
+			await expect(create({ baseUrl })).rejects.toMatchObject({ code: "invalid_api_origin" });
+		}
+		await expect(
+			create({ baseUrl: "http://localhost:8080/api/app-analytics/", allowLocalhostHttp: true }),
+		).resolves.toBeInstanceOf(AnalyticsClient);
+	});
+
 	it("does not record or transmit without explicit enablement", async () => {
 		const fetcher = vi.fn();
 		const client = await create({ enabled: false, fetch: fetcher });

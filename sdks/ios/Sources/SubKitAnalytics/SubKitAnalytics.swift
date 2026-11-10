@@ -4,6 +4,7 @@ import Foundation
 /// Explicit usage events only. The SDK never inspects screens, files, health data or device identifiers.
 public actor SubKitAnalytics {
     private let configuration: AnalyticsConfiguration
+    private let baseURL: URL
     private let definitions: [String: AnalyticsEventDefinition]
     private let storage: any AnalyticsQueueStorage
     private let transport: any AnalyticsTransport
@@ -25,9 +26,10 @@ public actor SubKitAnalytics {
                 transport: any AnalyticsTransport = URLSessionAnalyticsTransport(),
                 clock: @escaping @Sendable () -> Date = { Date() },
                 tokenProvider: @escaping CollectorTokenProvider) throws {
-        try Self.validate(configuration)
+        let baseURL = try Self.validate(configuration)
         guard Self.validSubject(subject) else { throw AnalyticsError.invalidIdentity }
         self.configuration = configuration
+        self.baseURL = baseURL
         self.subject = subject
         self.enabled = enabled
         self.storage = storage
@@ -36,7 +38,7 @@ public actor SubKitAnalytics {
         provider = tokenProvider
         let validatedDefinitions = Dictionary(uniqueKeysWithValues: configuration.events.map { ($0.name, $0) })
         definitions = validatedDefinitions
-        scope = Self.scope(configuration: configuration, subject: subject)
+        scope = Self.scope(configuration: configuration, baseURL: baseURL, subject: subject)
         events = []
         if enabled, let saved = try storage.read(scope: scope) {
             guard let envelope = try? AnalyticsJSON.decoder().decode(QueueEnvelope.self, from: saved),
@@ -91,7 +93,7 @@ public actor SubKitAnalytics {
         events = []
         try storage.remove(scope: scope)
         subject = newSubject
-        scope = Self.scope(configuration: configuration, subject: newSubject)
+        scope = Self.scope(configuration: configuration, baseURL: baseURL, subject: newSubject)
         provider = tokenProvider
         sessionID = UUID()
         lastActivityAt = nil
@@ -159,7 +161,7 @@ public actor SubKitAnalytics {
         let capturedProvider = provider
         let capturedTransport = transport
         let capturedClock = clock
-        let url = configuration.baseURL.appendingPathComponent("v1/events")
+        let url = baseURL.appendingPathComponent("v1/events")
         let task = Task<AnalyticsHTTPResponse, Error> {
             let credential = try await capturedProvider()
             try Task.checkCancellation()
@@ -251,8 +253,8 @@ public actor SubKitAnalytics {
         _ = try? await flush()
     }
 
-    private static func scope(configuration: AnalyticsConfiguration, subject: String) -> String {
-        let input = "\(configuration.baseURL.absoluteString)|\(configuration.appNamespace)|\(configuration.environment.rawValue)|\(subject)"
+    private static func scope(configuration: AnalyticsConfiguration, baseURL: URL, subject: String) -> String {
+        let input = "\(baseURL.absoluteString)|\(configuration.appNamespace)|\(configuration.environment.rawValue)|\(subject)"
         return SHA256.hash(data: Data(input.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
@@ -269,13 +271,18 @@ public actor SubKitAnalytics {
         return event.properties.allSatisfy { key, value in definition.properties[key]?.permits(value) == true }
     }
 
-    private static func validate(_ configuration: AnalyticsConfiguration) throws {
+    private static func validate(_ configuration: AnalyticsConfiguration) throws -> URL {
         let url = configuration.baseURL
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: true) else {
+            throw AnalyticsError.invalidConfiguration("Invalid API URL")
+        }
+        let path = components.percentEncodedPath
         let local = ["localhost", "127.0.0.1", "[::1]", "::1"].contains(url.host?.lowercased() ?? "")
         guard url.scheme == "https" || (url.scheme == "http" && local && configuration.allowsLocalhostHTTP && configuration.environment == .development),
               url.host != nil, url.user == nil, url.password == nil, url.query == nil, url.fragment == nil,
-              url.path.isEmpty || url.path == "/" else {
-            throw AnalyticsError.invalidConfiguration("Use an HTTPS origin; localhost HTTP is development-only")
+              path.range(of: "^(?:/[A-Za-z0-9._~-]+)*/?$", options: .regularExpression) != nil,
+              !path.split(separator: "/").contains(where: { $0 == "." || $0 == ".." }) else {
+            throw AnalyticsError.invalidConfiguration("Use an HTTPS API URL with a plain mount path; localhost HTTP is development-only")
         }
         guard !configuration.appNamespace.isEmpty, configuration.appNamespace.count <= 128,
               (1...500).contains(configuration.maxQueuedEvents), !configuration.events.isEmpty,
@@ -299,5 +306,8 @@ public actor SubKitAnalytics {
                 }
             }
         }
+        components.percentEncodedPath = path.hasSuffix("/") ? String(path.dropLast()) : path
+        guard let normalized = components.url else { throw AnalyticsError.invalidConfiguration("Invalid API URL") }
+        return normalized
     }
 }

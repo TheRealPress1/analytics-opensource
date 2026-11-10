@@ -44,4 +44,11 @@ disable redirects and caching, and return errors containing only a stable code a
 HTTP status. Error messages omit response bodies and credentials. HTTPS is required;
 `allowLocalhostHttp: true` is an explicit localhost development override.
 
+For an embedded API, set `baseUrl: "https://example.com/api/app-analytics"`.
+All methods preserve that mount and origin, producing paths such as
+`/api/app-analytics/v1/server/sessions`. Supply the mount before `/v1`, not a full
+endpoint. A single trailing slash is normalized. Mount segments allow ASCII
+letters, digits, `-`, `_`, `.`, and `~`; `.` or `..` segments, repeated slashes,
+percent escapes, credentials, query strings and fragments are rejected.
+
 Use `pnpm exec vitest run packages/sdk-server/src/index.test.ts` for its tests.

@@ -1,5 +1,15 @@
-import { analyze, dateKey, environmentSchema, ValidationError, validateBatch } from "@subkit/core";
-import { type App, CapacityError, ConflictError, type Repository } from "@subkit/db";
+import {
+	type App,
+	analyze,
+	CapacityError,
+	ConflictError,
+	dateKey,
+	environmentSchema,
+	type Repository,
+	StorageCapacityError,
+	ValidationError,
+	validateBatch,
+} from "@subkit/core";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { secureHeaders } from "hono/secure-headers";
@@ -10,11 +20,28 @@ export function createApi({
 	repo,
 	tokenSecret,
 	now = () => new Date(),
+	limits: overrides = {},
 }: {
 	repo: Repository;
 	tokenSecret: Uint8Array;
 	now?: () => Date;
+	limits?: Partial<{
+		eventsPerApp: number;
+		eventsPerCollector: number;
+		analytics: number;
+		sessions: number;
+	}>;
 }) {
+	const positiveLimit = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
+	const limits = z
+		.object({
+			eventsPerApp: positiveLimit.default(6000),
+			eventsPerCollector: positiveLimit.default(120),
+			analytics: positiveLimit.default(120),
+			sessions: positiveLimit.default(1200),
+		})
+		.strict()
+		.parse(overrides);
 	if (tokenSecret.byteLength < 32)
 		throw new Error("Collector signing key must contain at least 256 bits");
 	const app = new Hono();
@@ -58,7 +85,7 @@ export function createApi({
 	app.post("/v1/server/sessions", async (c) => {
 		const owner = await serverApp(c.req.header("Authorization"));
 		if (!owner) return c.json(failure("unauthorized", "Server key required"), 401);
-		if (!(await repo.consumeRate(`sessions:${owner.id}`, 1200, now())))
+		if (!(await repo.consumeRate(`sessions:${owner.id}`, limits.sessions, now())))
 			return c.json(failure("rate_limited", "Retry in one minute"), 429, { "Retry-After": "60" });
 		const body = z
 			.object({
@@ -130,8 +157,12 @@ export function createApi({
 		if (await repo.isSubjectDeleted(owner.id, claims.subject))
 			return c.json(failure("subject_deleted", "Collection disabled for this identity"), 410);
 		const rateOk =
-			(await repo.consumeRate(`app:${owner.id}`, 6000, now())) &&
-			(await repo.consumeRate(`collector:${owner.id}:${claims.subject}`, 120, now()));
+			(await repo.consumeRate(`app:${owner.id}`, limits.eventsPerApp, now())) &&
+			(await repo.consumeRate(
+				`collector:${owner.id}:${claims.subject}`,
+				limits.eventsPerCollector,
+				now(),
+			));
 		if (!rateOk)
 			return c.json(failure("rate_limited", "Retry in one minute"), 429, { "Retry-After": "60" });
 		const batch = validateBatch(await c.req.json(), owner.eventSpecs, now());
@@ -150,7 +181,7 @@ export function createApi({
 	app.get("/v1/server/analytics", async (c) => {
 		const owner = await serverApp(c.req.header("Authorization"));
 		if (!owner) return c.json(failure("unauthorized", "Server key required"), 401);
-		if (!(await repo.consumeRate(`analytics:${owner.id}`, 120, now())))
+		if (!(await repo.consumeRate(`analytics:${owner.id}`, limits.analytics, now())))
 			return c.json(failure("rate_limited", "Retry in one minute"), 429, { "Retry-After": "60" });
 		const environment = environmentSchema.parse(c.req.query("environment") ?? "production");
 		const history = await repo.history(owner.id, environment);
@@ -211,6 +242,8 @@ export function createApi({
 			);
 		if (error instanceof ConflictError)
 			return c.json(failure("idempotency_conflict", error.message), 409);
+		if (error instanceof StorageCapacityError)
+			return c.json(failure("storage_capacity", error.message), 503, { "Retry-After": "60" });
 		if (error instanceof CapacityError)
 			return c.json(failure("history_capacity", error.message), 422);
 		return c.json(failure("service_unavailable", "Please retry later"), 503);

@@ -15,6 +15,15 @@ the `SubKitAnalytics` library. During development, use a local checkout:
 
 In a consuming package target, depend on
 `.product(name: "SubKitAnalytics", package: "analytics-opensource")`.
+
+`baseURL` accepts an HTTPS origin or a mount such as
+`https://example.com/api/app-analytics`; events go to
+`/api/app-analytics/v1/events` on that same origin. Configure the mount before
+`/v1`, not the full endpoint. A single trailing slash is normalized for requests
+and queue storage. Plain ASCII path segments may contain letters, digits, `-`,
+`_`, `.`, and `~`; `.` and `..` alone, percent escapes, repeated slashes, user
+information, queries and fragments are rejected. The default transport refuses
+all redirects, so it never forwards a collector credential to another endpoint.
 Pin a reviewed tag or commit when installing from GitHub; do not follow the default
 branch automatically in a production application.
 
