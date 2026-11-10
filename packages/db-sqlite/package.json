@@ -1,0 +1,39 @@
+{
+	"name": "@subkit/db-sqlite",
+	"version": "0.2.0",
+	"private": false,
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		}
+	},
+	"files": [
+		"dist",
+		"README.md"
+	],
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"typecheck": "tsc -p tsconfig.json --noEmit"
+	},
+	"dependencies": {
+		"@subkit/core": "workspace:*",
+		"@types/better-sqlite3": "^7.6.13"
+	},
+	"peerDependencies": {
+		"better-sqlite3": ">=12 <13"
+	},
+	"devDependencies": {
+		"better-sqlite3": "^12.9.0",
+		"@subkit/api": "workspace:*"
+	},
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/TheRealPress1/analytics-opensource.git",
+		"directory": "packages/db-sqlite"
+	}
+}

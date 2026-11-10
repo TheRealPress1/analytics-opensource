@@ -1,6 +1,6 @@
 {
 	"name": "@subkit/core",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"private": false,
 	"type": "module",
 	"main": "./dist/index.js",
@@ -20,5 +20,11 @@
 	},
 	"dependencies": {
 		"zod": "4.6.7"
+	},
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/TheRealPress1/analytics-opensource.git",
+		"directory": "packages/core"
 	}
 }

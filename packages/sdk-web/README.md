@@ -6,7 +6,7 @@ devices, read medical records or implement subscriptions.
 
 Build with `pnpm --filter @subkit/web build`, then create a distributable archive
 with `pnpm --filter @subkit/web pack`. Install that reviewed archive into a consumer
-with `pnpm add /path/to/subkit-web-0.1.0.tgz`. A GitHub release can distribute the
+with `pnpm add /path/to/subkit-web-0.2.0.tgz`. A GitHub release can distribute the
 same archive; an npm registry publication is not required.
 
 ```ts
@@ -75,6 +75,12 @@ on foregrounding when useful. Browsers may suspend timers or terminate a page at
 any time; this SDK does not claim guaranteed unload delivery.
 
 HTTPS is required, redirects are refused, and requests omit browser cookies.
+`baseUrl` may include an API mount, such as `https://example.com/api/app-analytics`;
+the SDK sends events to that same origin at `/api/app-analytics/v1/events`.
+Supply the mount before `/v1`, not the events endpoint. A single trailing slash is
+normalized. Mount segments may contain ASCII letters, digits, `-`, `_`, `.`, and
+`~`; `.` or `..` segments, repeated slashes, percent escapes, credentials, queries,
+and fragments are rejected. Queues remain isolated between different mounts.
 For local development only, set `allowLocalhostHttp: true` and use a localhost URL
 with `environment: 'development'`. `automaticFlush: false` permits explicit flushing.
 

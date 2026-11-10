@@ -1,14 +1,14 @@
 {
 	"name": "@subkit/api",
-	"version": "0.1.0",
-	"private": true,
+	"version": "0.2.0",
+	"private": false,
 	"type": "module",
-	"main": "./dist/index.js",
-	"types": "./dist/index.d.ts",
+	"main": "./dist/app.js",
+	"types": "./dist/app.d.ts",
 	"exports": {
 		".": {
-			"types": "./dist/index.d.ts",
-			"import": "./dist/index.js"
+			"types": "./dist/app.d.ts",
+			"import": "./dist/app.js"
 		}
 	},
 	"files": [
@@ -21,13 +21,27 @@
 	"dependencies": {
 		"@hono/node-server": "^1.19.11",
 		"@subkit/core": "workspace:*",
-		"@subkit/db": "workspace:*",
 		"hono": "4.13.17",
 		"jose": "^6.1.3",
 		"pino": "^10.3.0",
 		"zod": "4.6.7"
 	},
 	"devDependencies": {
-		"pg": "^8.23.1"
+		"pg": "^8.23.1",
+		"@subkit/db": "workspace:*"
+	},
+	"peerDependencies": {
+		"@subkit/db": "^0.2.0"
+	},
+	"peerDependenciesMeta": {
+		"@subkit/db": {
+			"optional": true
+		}
+	},
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/TheRealPress1/analytics-opensource.git",
+		"directory": "apps/api"
 	}
 }

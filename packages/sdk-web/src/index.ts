@@ -85,21 +85,27 @@ export function browserQueueStorage(
 	};
 }
 
-function origin(value: string, environment: Environment, local: boolean): string {
+function apiBaseUrl(value: string, environment: Environment, local: boolean): string {
 	const url = new URL(value);
+	// Inspect the original path: URL normalizes dot segments before exposing pathname.
+	const raw = /^https?:\/\/[^/?#\\\s]+(\/[^?#\\\s]*)?$/.exec(value);
+	const path = raw?.[1] ?? "";
 	const localhost = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
 	if (
+		!raw ||
+		raw[0] !== value ||
 		(url.protocol !== "https:" &&
 			!(url.protocol === "http:" && localhost && local && environment === "development")) ||
 		url.username ||
 		url.password ||
 		url.search ||
 		url.hash ||
-		(url.pathname !== "/" && url.pathname !== "")
+		!/^(?:\/[A-Za-z0-9._~-]+)*\/?$/.test(path) ||
+		path.split("/").some((segment) => segment === "." || segment === "..")
 	) {
 		throw new AnalyticsError("invalid_api_origin");
 	}
-	return url.origin;
+	return `${url.origin}${path.replace(/\/$/, "")}`;
 }
 
 function validateSpecs(specs: EventSpecs): void {
@@ -180,7 +186,7 @@ export class AnalyticsClient {
 			throw new AnalyticsError("invalid_namespace");
 		validateSpecs(options.eventSpecs);
 		this.specs = structuredClone(options.eventSpecs);
-		this.baseUrl = origin(
+		this.baseUrl = apiBaseUrl(
 			options.baseUrl,
 			options.environment,
 			options.allowLocalhostHttp === true,

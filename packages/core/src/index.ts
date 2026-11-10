@@ -201,3 +201,12 @@ export function analyze(
 		},
 	};
 }
+
+export {
+	type App,
+	CapacityError,
+	ConflictError,
+	type Repository,
+	StorageCapacityError,
+	type StoredEvent,
+} from "./repository.js";

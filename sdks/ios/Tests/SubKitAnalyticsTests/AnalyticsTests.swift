@@ -110,6 +110,64 @@ private func events(in request: URLRequest) throws -> [QueuedEvent] {
 
 @Suite("Explicit, isolated and durable usage collection")
 struct AnalyticsTests {
+    @Test(arguments: ["", "/", "/api/app-analytics", "/api/app-analytics/"])
+    func deliversToSameOriginMount(mount: String) async throws {
+        let transport = RecordingTransport([ack(1)])
+        let sdk = try SubKitAnalytics(configuration: config(baseURL: "https://analytics.example.test:8443\(mount)"),
+            subject: userA, enabled: true, storage: MemoryStorage(), transport: transport,
+            clock: { instant }, tokenProvider: { token() })
+        try await sdk.track("app_opened")
+        try await sdk.flush()
+        let request = try #require(await transport.requests.first)
+        let prefix = mount.hasSuffix("/") ? String(mount.dropLast()) : mount
+        #expect(request.url?.absoluteString == "https://analytics.example.test:8443\(prefix)/v1/events")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer synthetic.collector.token")
+    }
+
+    @Test func normalizesTrailingSlashAndIsolatesStorageByMount() async throws {
+        let storage = MemoryStorage()
+        let first = try SubKitAnalytics(configuration: config(baseURL: "https://example.test/api/app-analytics/"),
+            subject: userA, enabled: true, storage: storage, clock: { instant }, tokenProvider: { token() })
+        try await first.track("app_opened")
+        let resumed = try SubKitAnalytics(configuration: config(baseURL: "https://example.test/api/app-analytics"),
+            subject: userA, enabled: true, storage: storage, clock: { instant }, tokenProvider: { token() })
+        #expect(await resumed.pendingEventCount == 1)
+        let other = try SubKitAnalytics(configuration: config(baseURL: "https://example.test/api/other"),
+            subject: userA, enabled: true, storage: storage, clock: { instant }, tokenProvider: { token() })
+        #expect(await other.pendingEventCount == 0)
+    }
+
+    @Test func rejectsAmbiguousMountPathsBeforeCollection() throws {
+        for url in ["https://example.test/api?", "https://example.test/api#",
+                    "https://example.test/api/../other", "https://example.test/api/./other",
+                    "https://example.test/api/%2e%2e/other", "https://example.test/api/%252e%252e/other",
+                    "https://example.test/api%2fother", "https://example.test//other",
+                    "https://example.test/api//other", "https://example.test/api\\other"] {
+            #expect(throws: AnalyticsError.self) {
+                try SubKitAnalytics(configuration: config(baseURL: url), subject: userA,
+                    storage: MemoryStorage(), tokenProvider: { token() })
+            }
+        }
+        _ = try SubKitAnalytics(configuration: config(baseURL: "http://localhost:8080/api/app-analytics/", localhost: true),
+            subject: userA, storage: MemoryStorage(), tokenProvider: { token() })
+    }
+
+    @Test func transportNeverForwardsBearerCredentialsOnRedirect() async throws {
+        let transport = URLSessionAnalyticsTransport()
+        let source = URL(string: "https://example.test/api/app-analytics/v1/events")!
+        let redirect = HTTPURLResponse(url: source, statusCode: 307, httpVersion: nil,
+                                       headerFields: ["Location": "https://other.example.test/events"])!
+        var redirected = URLRequest(url: URL(string: "https://other.example.test/events")!)
+        redirected.setValue("Bearer synthetic.collector.token", forHTTPHeaderField: "Authorization")
+        let task = URLSession.shared.dataTask(with: source)
+        defer { task.cancel() }
+        let refused = await withCheckedContinuation { continuation in
+            transport.urlSession(URLSession.shared, task: task, willPerformHTTPRedirection: redirect,
+                                 newRequest: redirected) { continuation.resume(returning: $0 == nil) }
+        }
+        #expect(refused)
+    }
+
     @Test func disabledByDefaultDoesNotQueueOrSend() async throws {
         let storage = MemoryStorage()
         let transport = RecordingTransport()

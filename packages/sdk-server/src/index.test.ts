@@ -3,6 +3,75 @@ import { SubKitServer, SubKitServerError } from "./index.js";
 
 const key = `sk_${"x".repeat(32)}`;
 describe("server SDK", () => {
+	it.each(["", "/", "/api/app-analytics", "/api/app-analytics/"])(
+		"preserves API mount %s for every server endpoint without following redirects",
+		async (mount) => {
+			const credential = {
+				token: "synthetic.token",
+				subject: "synthetic_user",
+				environment: "development",
+				expiresAt: "2026-11-09T13:00:00Z",
+			};
+			const fetcher = vi
+				.fn<typeof fetch>()
+				.mockResolvedValueOnce(Response.json({}))
+				.mockResolvedValueOnce(Response.json(credential))
+				.mockResolvedValueOnce(Response.json({}))
+				.mockResolvedValueOnce(Response.json({ deleted: 0 }));
+			const sdk = new SubKitServer({
+				baseUrl: `https://analytics.example.test:8443${mount}`,
+				secretKey: key,
+				fetch: fetcher,
+			});
+			await sdk.getApp();
+			await sdk.issueCollectorToken("synthetic_user", "development");
+			await sdk.getAnalytics({ environment: "development", range: "all" });
+			await sdk.deleteSubject("synthetic_user");
+			const prefix = `${mount.replace(/\/$/, "")}/v1/server`;
+			expect(fetcher.mock.calls.map(([url]) => new URL(String(url)).pathname)).toEqual([
+				`${prefix}/app`,
+				`${prefix}/sessions`,
+				`${prefix}/analytics`,
+				`${prefix}/subjects/synthetic_user`,
+			]);
+			for (const [url, request] of fetcher.mock.calls) {
+				expect(new URL(String(url)).origin).toBe("https://analytics.example.test:8443");
+				expect(request).toMatchObject({ redirect: "error", credentials: "omit" });
+				expect(new Headers(request?.headers).get("Authorization")).toBe(`Bearer ${key}`);
+			}
+		},
+	);
+
+	it("rejects ambiguous URL paths before sending a server key", () => {
+		const fetcher = vi.fn();
+		for (const baseUrl of [
+			"https://user:password@example.test/api",
+			"https://example.test/api?",
+			"https://example.test/api#",
+			"https://example.test/api/../other",
+			"https://example.test/api/./other",
+			"https://example.test/api/%2e%2e/other",
+			"https://example.test/api/%252e%252e/other",
+			"https://example.test/api%2fother",
+			"https://example.test//other",
+			"https://example.test/api//other",
+			"https://example.test/api\\other",
+			"https://example.test/api\n",
+		]) {
+			expect(() => new SubKitServer({ baseUrl, secretKey: key, fetch: fetcher })).toThrow(
+				"invalid_api_origin",
+			);
+		}
+		expect(fetcher).not.toHaveBeenCalled();
+		expect(
+			new SubKitServer({
+				baseUrl: "http://localhost:8080/api/app-analytics/",
+				secretKey: key,
+				allowLocalhostHttp: true,
+			}),
+		).toBeInstanceOf(SubKitServer);
+	});
+
 	it("issues a collector credential for the backend-authenticated subject", async () => {
 		const credential = {
 			token: "synthetic.token",

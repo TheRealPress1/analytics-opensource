@@ -74,18 +74,24 @@ export class SubKitServer {
 		if (!/^sk_[A-Za-z0-9_-]{24,}$/.test(options.secretKey))
 			throw new SubKitServerError("invalid_server_key");
 		const url = new URL(options.baseUrl);
+		// Validate before relying on URL.pathname, which collapses traversal segments.
+		const raw = /^https?:\/\/[^/?#\\\s]+(\/[^?#\\\s]*)?$/.exec(options.baseUrl);
+		const path = raw?.[1] ?? "";
 		const localhost = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
 		if (
+			!raw ||
+			raw[0] !== options.baseUrl ||
 			(url.protocol !== "https:" &&
 				!(url.protocol === "http:" && localhost && options.allowLocalhostHttp)) ||
 			url.username ||
 			url.password ||
 			url.search ||
 			url.hash ||
-			(url.pathname !== "/" && url.pathname !== "")
+			!/^(?:\/[A-Za-z0-9._~-]+)*\/?$/.test(path) ||
+			path.split("/").some((segment) => segment === "." || segment === "..")
 		)
 			throw new SubKitServerError("invalid_api_origin");
-		this.baseUrl = url.origin;
+		this.baseUrl = `${url.origin}${path.replace(/\/$/, "")}`;
 		this.#secretKey = options.secretKey;
 		this.fetcher = options.fetch ?? globalThis.fetch.bind(globalThis);
 	}

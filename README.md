@@ -18,7 +18,11 @@ This is an independent implementation. The current release measures app usage: e
 
 This is an early developer release. The interactive API deliberately returns a capacity error above 100,000 events per app/environment instead of silently truncating charts. A SQL/warehouse aggregation path is needed before larger deployments. Infrastructure definitions and local tests are separate from a verified live deployment; follow the acceptance steps before collecting production events.
 
-## Quick start
+## Reuse an existing application and database
+
+The embeddable API and SQLite adapter can run inside an existing Node web application, using the same SQLite database connection. Analytics owns only its `subkit_analytics_*` tables. Your host keeps control of authentication, deployment, secrets, database settings and backups. No separate API server, cloud database or continuous worker is required for this mode. See [embedded deployment](docs/EMBEDDED.md).
+
+## Standalone PostgreSQL quick start
 
 Requires Node 22, pnpm 10.33.2, and PostgreSQL 16.
 
@@ -53,7 +57,7 @@ The SDK packages are not implicitly published to npm. To make installable archiv
 
 ## Deploy and verify
 
-[GCP infrastructure](infra/gcp/README.md) describes the staged bootstrap, IAM database grants, secret provisioning, keyless CI deployment, and costs. [Runbook](docs/RUNBOOK.md) covers backups, KMS verification and incident recovery. Infrastructure tests use Terraform mocks; they do not establish that a cloud service is live.
+The dedicated GCP configuration is optional; it is not required for an embedded installation. [GCP infrastructure](infra/gcp/README.md) describes the staged bootstrap, IAM database grants, secret provisioning, keyless CI deployment, and costs. [Runbook](docs/RUNBOOK.md) covers backups, KMS verification and incident recovery. Infrastructure tests use Terraform mocks; they do not establish that a cloud service is live.
 
 ```sh
 pnpm build
